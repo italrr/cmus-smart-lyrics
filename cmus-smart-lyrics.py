@@ -5,9 +5,14 @@ import json
 import curses
 import time
 import sys
+import os
 import hashlib
 import threading
 from subprocess import PIPE, Popen
+
+def gprint(msg):
+	command = "notify-send \""+msg+"\""
+	Popen(command, stdout=PIPE, stderr=None, shell=True)
 
 def get_tag(input, tagname):
 	lines = input.splitlines()
@@ -16,16 +21,29 @@ def get_tag(input, tagname):
 		if tokens[1] == tagname:
 			v = ' '.join(tokens[2:])
 			return v
+	return None
+
+def get_filename(input):
+	lines = input.splitlines()
+	for line in lines:
+		tokens = line.split(" ")
+		if tokens[0] == "file":
+			v = os.path.basename(' '.join(tokens[1:])).rsplit( ".", 1 )[ 0 ]
+			return v	
+	return None
 
 def get_current_song():
-	song = {"album": "", "artist": "", "title": "", "md5": ""}
+	song = {"artist": "", "title": "", "md5": ""}
 	command = "cmus-remote -Q 2>/dev/null"
 	with Popen(command, stdout=PIPE, stderr=None, shell=True) as process:
 		output = process.communicate()[0].decode("utf-8")
-		song["title"] = get_tag(output, "title")
-		song["artist"] = get_tag(output, "artist")
-		song["album"] = get_tag(output, "album")
-		song["md5"] = hashlib.md5((song["title"] + "-" + song["artist"] + "-" + song["album"]).encode('utf-8')).hexdigest() 
+		#(output)
+		t_title = get_tag(output, "title")
+		t_artist = get_tag(output, "artist")
+		filename = get_filename(output)
+		song["title"] = filename if t_title ==  None else t_title
+		song["artist"] = "" if t_artist == None else t_artist
+		song["md5"] = hashlib.md5((song["title"] + "-" + song["artist"]).encode('utf-8')).hexdigest() 
 	return song
 
 def is_player_running():
@@ -84,35 +102,49 @@ ui_body_cursor_y = 0
 
 curses.start_color()
 curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLUE)
-
-def gprint(msg):
-	command = "notify-send \""+msg+"\""
-	Popen(command, stdout=PIPE, stderr=None, shell=True)
+curses.use_default_colors()
+curses.init_pair(2, -1, -1)
 
 def window_clear():
 	stdscr.clear()
 	stdscr.refresh()
+
+def window_draw_text(str, x, y, color):
+	if len(str) >= win_width:
+		str = str[0:win_width-1]
+	stdscr.addstr(y, x, str, color)
+	stdscr.refresh()	
 	
 def redraw_ui():
 	global ui_body_cursor_y
 	global ui_body
 	stdscr.clear()
 	# title
-	
-	stdscr.addstr(0, 0, ui_title, curses.color_pair(1))
+	for w in range(0, win_width):
+		stdscr.insch(0, w, " ", curses.color_pair(1))
+	window_draw_text(ui_title, 0, 0, curses.color_pair(1))
 	# body
 	for i in range(0, win_height-2):
 		chunk = "\n"
 		if i + ui_body_cursor_y < len(ui_body) and len(ui_body) > 0:
 			chunk = ui_body[i + ui_body_cursor_y]
-		stdscr.addstr(1 + int(i), 0, chunk)
+		window_draw_text(chunk, 0, 1 + int(i), curses.color_pair(2))
 	# bottom
-	stdscr.addstr(win_height-1, 0, ui_bottom, curses.color_pair(1))
-	stdscr.refresh()
+	for w in range(0, win_width):
+		stdscr.insch(win_height-1, w, " ", curses.color_pair(1))
+	window_draw_text(ui_bottom, 0, win_height-1, curses.color_pair(1))
 	
-def window_draw_text(str, x, y):
-	stdscr.addstr(y, x, str)
-	stdscr.refresh()	
+	stdscr.refresh()
+
+def update_ui(title, body, bottom):
+	global ui_title
+	global ui_bottom
+	global ui_body
+	ui_title = title
+	ui_bottom = bottom
+	if body != None:
+		ui_body = body
+	redraw_ui()	
 
 def core_thread():
 	global ui_title
@@ -129,24 +161,18 @@ def core_thread():
 				redraw_ui()
 				continue
 			current = get_current_song()
+			#gprint(str(current))
 			if last_song != None and current["md5"] == last_song["md5"]:
+				#gprint("skipped")
 				last_song = current
 				continue
 			last_song = current
-			ui_title = "Fetching lyrics for %s" % current["title"]
-			ui_bottom = ""
-			ui_body = []
-			redraw_ui()			
+			update_ui("Fetching lyrics for %s" % current["title"], [], "")
 			found = fetch_from_all(current)
 			if len(found) == 0:
-				ui_title = "No lyrics found for %s" % current["title"]
-				ui_bottom = ""
-				redraw_ui()	
+				update_ui("No lyrics found for %s" % current["title"], [], "")
 				continue
-			ui_title = current["title"] + " by " + current["artist"]
-			ui_body = found[0]["lyrics"]
-			ui_bottom = "PRESS [UP ARROW] OR [DOWN ARROW] TO SCROLL THROUGH LYRICS"
-			redraw_ui()
+			update_ui(current["title"] + " by " + current["artist"], found[0]["lyrics"], "PRESS [UP] OR [DOWN] TO SCROLL")
 		except Exception as ex:
 			with open('xD.txt', 'a') as f:
 				f.write(str(ex))
@@ -168,6 +194,12 @@ while is_running:
 		ui_body_cursor_y += 1
 		if ui_body_cursor_y >= len(ui_body):
 			ui_body_cursor_y = len(ui_body)-1
+			
+	resize = curses.is_term_resized(win_height, win_width)
+	if resize:
+		win_height, win_width = stdscr.getmaxyx()
+		curses.resizeterm(win_height, win_width)
+    	
 	redraw_ui()
 
 core_thread_handle.join()
