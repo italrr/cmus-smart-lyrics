@@ -174,7 +174,7 @@ def core_thread():
 				continue
 			update_ui(current["title"] + " by " + current["artist"], found[0]["lyrics"], "PRESS [UP] OR [DOWN] TO SCROLL")
 		except Exception as ex:
-			with open('xD.txt', 'a') as f:
+			with open('error1.txt', 'a') as f:
 				f.write(str(ex))
 				f.close()
 			sys.exit(1)
@@ -185,23 +185,28 @@ core_thread_handle.start()
 redraw_ui()
 
 while is_running:
-	key = stdscr.getch()
-	if key == 65:
-		ui_body_cursor_y -= 1
-		if ui_body_cursor_y < 0:
-			ui_body_cursor_y = 0 
-	elif key == 66:
-		ui_body_cursor_y += 1
-		if ui_body_cursor_y >= len(ui_body):
-			ui_body_cursor_y = len(ui_body)-1
-			
-	resize = curses.is_term_resized(win_height, win_width)
-	if resize:
-		win_height, win_width = stdscr.getmaxyx()
-		curses.resizeterm(win_height, win_width)
-    	
-	redraw_ui()
-
+    try:
+        key = stdscr.getch()
+        if key == 65:
+            ui_body_cursor_y -= 1
+            if ui_body_cursor_y < 0:
+                ui_body_cursor_y = 0 
+        elif key == 66:
+            ui_body_cursor_y += 1
+            if ui_body_cursor_y >= len(ui_body):
+                ui_body_cursor_y = len(ui_body)-1
+                
+        resize = curses.is_term_resized(win_height, win_width)
+        if resize:
+            win_height, win_width = stdscr.getmaxyx()
+            curses.resizeterm(win_height, win_width)
+            
+        redraw_ui()
+    except Exception as ex:
+        with open('error2.txt', 'a') as f:
+            f.write(str(ex))
+            f.close()
+        sys.exit(1)
 core_thread_handle.join()
 
 curses.endwin()
